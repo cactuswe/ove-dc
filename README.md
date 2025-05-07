@@ -1,1 +1,3 @@
-# ove-dc
+# Ove Discord AI 
+
+katastrof
