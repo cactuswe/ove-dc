@@ -1,5 +1,5 @@
-# main.py  –  Discord‑bot som proxyar mot AI Horde (robust version)
-import os, time, logging, requests, asyncio
+# main.py  –  Discord‑bot som svarar via AI Horde när "ove" nämns
+import os, time, logging, requests, asyncio, re
 import threading, http.server, socketserver
 import discord
 from discord.ext import commands
@@ -15,8 +15,9 @@ threading.Thread(
 # --------------------------------------------------------------
 # 1.  Konfiguration
 # --------------------------------------------------------------
-HORDE_KEY  = os.getenv("HORDE_KEY", "")
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+HORDE_KEY      = os.getenv("HORDE_KEY", "")
+DISCORD_TOKEN  = os.getenv("DISCORD_TOKEN")
+TRIGGER_REGEX  = re.compile(r"\bove\b", re.I)    # matchar ordet "ove" oavsett versaler
 
 BASE_URL   = "https://aihorde.net/api/v2"
 ASYNC_URL  = f"{BASE_URL}/generate/text/async"
@@ -26,17 +27,13 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-8s | %(message)s")
 
 # --------------------------------------------------------------
-# 2.  AI Horde‑anrop med fel‑hantering
+# 2.  AI Horde‑anrop
 # --------------------------------------------------------------
 def horde_infer(prompt: str, timeout_s: int = 60) -> str:
-    prompt = prompt.strip()
-    if not prompt:
-        return "⚠️ Jag behöver lite text att svara på 🙂"
-
     payload = {
-        "prompt": prompt,
+        "prompt": prompt.strip(),
         "max_tokens": 120,
-        "models": ["Pygmalion-2-7b"],      # ta bort om du vill låta Horde välja
+        "models": ["Pygmalion-2-7b"],
         "params": {
             "temperature": 0.8,
             "top_p": 0.95,
@@ -50,11 +47,11 @@ def horde_infer(prompt: str, timeout_s: int = 60) -> str:
         resp.raise_for_status()
     except requests.RequestException as e:
         logging.error("POST fel → %s | %s", getattr(e.response, "status_code", "?"), e)
-        return f"⚠️ Ove‑fel: {getattr(e.response, 'text', str(e))[:120]}"
+        return f"⚠️ Horde‑fel: {getattr(e.response, 'text', str(e))[:120]}"
 
     job_id = resp.json().get("id")
     if not job_id:
-        return "⚠️ Kunde inte skapa Ove‑jobb."
+        return "⚠️ Kunde inte skapa Horde‑jobb."
 
     start = time.time()
     while True:
@@ -65,41 +62,48 @@ def horde_infer(prompt: str, timeout_s: int = 60) -> str:
             time.sleep(2)
             continue
 
-        state = status.get("state", {})
-        if state.get("status") == "done":
+        if status.get("state", {}).get("status") == "done":
             gens = status.get("generations", [])
             return gens[0]["text"].strip() if gens else "⚠️ Inget svar genererades."
-        if state.get("status") == "faulted":
-            return f"⚠️ Ove avbröt jobbet: {state.get('error','okänt fel')}"
+        if status.get("state", {}).get("status") == "faulted":
+            return f"⚠️ Horde avbröt jobbet: {status['state'].get('error','okänt fel')}"
 
         if time.time() - start > timeout_s:
-            return "⚠️ Ove tog för lång tid (>60 s). Försök igen senare."
+            return "⚠️ Horde tog för lång tid (>60 s). Försök igen senare."
         time.sleep(1)
 
 # --------------------------------------------------------------
 # 3.  Discord‑bot
 # --------------------------------------------------------------
 intents = discord.Intents.default()
-intents.message_content = True   # måste även slås på i Dev Portal
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
     logging.info("✅  %s online – guilds: %d", bot.user, len(bot.guilds))
 
+# ---------- kommandon -----------------------------------------
+@bot.command(name="ping")
+async def ping(ctx: commands.Context):
+    """!ping  →  pong"""
+    await ctx.send("pong")
+
+# ---------- on_message‑lyssnare --------------------------------
 @bot.event
-async def on_message(msg: discord.Message):
-    if msg.author.bot:
+async def on_message(message: discord.Message):
+    # Låt command‑systemet köra först
+    await bot.process_commands(message)
+
+    # Ignorera bots & DM:s (valfritt – ta bort checken om du vill svara i DM)
+    if message.author.bot or isinstance(message.channel, discord.DMChannel):
         return
 
-    # enkelt ping‑test
-    if msg.content.lower().startswith("!ping"):
-        await msg.channel.send("pong")
-        return
-
-    loop = asyncio.get_running_loop()
-    reply = await loop.run_in_executor(None, horde_infer, msg.content)
-    await msg.channel.send(reply)
+    # Kör AI‑Horde om "ove" nämns
+    if TRIGGER_REGEX.search(message.content):
+        loop = asyncio.get_running_loop()
+        reply = await loop.run_in_executor(None, horde_infer, message.content)
+        await message.channel.send(reply)
 
 # --------------------------------------------------------------
 # 4.  Starta boten
