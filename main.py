@@ -17,7 +17,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DI_KEY        = os.getenv("DEEPINFRA_KEY")
 FIREBASE_CRED = os.getenv("FIREBASE_CRED_JSON")
 MODEL         = os.getenv("DI_MODEL",
-    "cognitivecomputations/dolphin-2.9.1-llama-3-70b")
+    "meta-llama/Meta-Llama-3-8B-Instruct")
 MAX_HISTORY   = int(os.getenv("HISTORY_LIMIT", 20))
 
 TRIGGER_REGEX = re.compile(r"\bove\b", re.I)
@@ -98,13 +98,20 @@ def save_message(channel_id: int, role: str, content: str):
 def forget_channel(channel_id: int):
     db.collection("conversations").document(str(channel_id)).delete()
 
-# 4. DeepInfra‑chat
+# -------------------- DeepInfra‑chat ----------------------------
 def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
                    timeout_s: int = 30) -> str:
+
     history = get_history(channel_id)
 
-    prompt_msgs = [{"role": "system", "content": SYSTEM_PROMPT}, *history,
-                   {"role": "user", "content": f"{user_name}: {user_msg}"}]
+    # modell‑agnostisk start + slut som de flesta “uncensored”‑workers förstår
+    INJECT_START = "[INST] <<SYS>>\n" + SYSTEM_PROMPT + "\n<</SYS>>\n\n"
+    INJECT_END   = "[/INST]"
+
+    prompt_msgs = [{"role": "user", "content": f"{user_name}: {user_msg}"}]
+    # Llama‑3‑chat förstår historik som (user⟶assistant)‑par
+    for h in history[-(MAX_HISTORY//2):]:
+        prompt_msgs.insert(0, h)   # enkel kronologisk stapling
 
     payload = {
         "model": MODEL,
@@ -112,7 +119,12 @@ def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
         "max_tokens": 160,
         "temperature": 0.8,
         "top_p": 0.95,
+        # ↓↓ tvingar in system‑prompt i riktiga generationen
+        "frmt_inject_start": INJECT_START,
+        "frmt_inject_end": INJECT_END,
+        "n": 1                # en (1) variant – aldrig 30
     }
+
     headers = {"Authorization": f"Bearer {DI_KEY}",
                "Content-Type": "application/json"}
 
@@ -126,7 +138,7 @@ def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
         content = f"⚠️ DeepInfra‑fel {code}: {str(e)[:120]}"
         logging.error(content)
 
-    # Spara båda sidor i historik
+    # minne
     save_message(channel_id, "user", f"{user_name}: {user_msg}")
     save_message(channel_id, "assistant", content)
     return content
