@@ -66,12 +66,23 @@ DI_ENDPOINT = "https://api.deepinfra.com/v1/openai/chat/completions"
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-8s | %(message)s")
 
-# 2. Firebase init
+# ---- Efter att du hämtat FIREBASE_CRED ---------------------------------
+import json, tempfile, textwrap
+
 if not FIREBASE_CRED:
     raise RuntimeError("FIREBASE_CRED_JSON saknas")
-cred = credentials.Certificate(FIREBASE_CRED)
+
+if FIREBASE_CRED.strip().startswith("{"):
+    # 1) ENV‑variabeln innehåller själva JSON‑texten
+    cred_dict = json.loads(FIREBASE_CRED)
+    cred = credentials.Certificate(cred_dict)
+else:
+    # 2) ENV‑variabeln är en filväg (t.ex. /etc/secrets/firebase.json)
+    cred = credentials.Certificate(FIREBASE_CRED)
+
 firebase_admin.initialize_app(cred)
-db = firestore.client()                    # collection: conversations/{channel_id}
+db = firestore.client()
+
 
 # 3. Firestore‑helpers
 def get_history(channel_id: int) -> List[dict]:
