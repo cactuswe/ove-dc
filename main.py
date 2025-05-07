@@ -78,26 +78,16 @@ def save_message(channel_id: int, role: str, content: str):
 def forget_channel(channel_id: int):
     db.collection("conversations").document(str(channel_id)).delete()
 
-# ───────────────────────────────────────────────────────────────
-# 4.  DeepInfra‑chat – dynamisk sampling
-# ───────────────────────────────────────────────────────────────
 def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
                    timeout_s: int = 40) -> str:
-
+    # ── 1. Bygg meddelandelistan (system först) ─────────────────
     history = get_history(channel_id)[-(MAX_HISTORY//2):]   # kortare prompt
 
-    inject_start = "[INST] <<SYS>>\n" + SYSTEM_PROMPT + "\n<</SYS>>\n\n"
-    inject_end   = "[/INST]"
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages += history                                     # äldre rader
+    messages.append({"role": "user", "content": f"{user_name}: {user_msg}"})
 
-    messages = history + [
-        {"role": "user", "content": f"{user_name}: {user_msg}"},
-        {"role": "system", "content": (
-            SYSTEM_PROMPT +
-            "\n\nDu MÅSTE svara på svenska. "
-            "Svara på högst 3 meningar. Ingen engelska."
-        )}
-    ]
-
+    # ── 2. API‑payload – ingen frmt_inject_* ────────────────────
     payload = {
         "model": MODEL,
         "messages": messages,
@@ -105,13 +95,14 @@ def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
         "temperature": 1.0,
         "top_p": 0.9,
         "presence_penalty": 0.4,
-        "frmt_inject_start": inject_start,
-        "frmt_inject_end": inject_end,
         "n": 1
     }
-    headers = {"Authorization": f"Bearer {DI_KEY}",
-               "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {DI_KEY}",
+        "Content-Type": "application/json"
+    }
 
+    # ── 3. Skicka & få svar ─────────────────────────────────────
     try:
         r = requests.post(DI_ENDPOINT, json=payload, headers=headers,
                           timeout=timeout_s)
@@ -122,9 +113,10 @@ def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
         content = f"⚠️ DeepInfra‑fel {code}: {str(e)[:100]}"
         logging.error(content)
 
-    # spara endast assistant‑svar (user redan sparad i on_message)
+    # ── 4. Spara endast assistant‑svar (user redan sparad) ──────
     save_message(channel_id, "assistant", content)
     return content
+
 
 # ───────────────────────────────────────────────────────────────
 # 5.  Replace @{username} → <@id>
