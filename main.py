@@ -1,6 +1,13 @@
 import os, time, requests, discord, asyncio
 from discord.ext import commands
 
+import threading, http.server, socketserver
+threading.Thread(
+    target=lambda: socketserver.TCPServer(("0.0.0.0", 8080),
+                                          http.server.SimpleHTTPRequestHandler).serve_forever(),
+    daemon=True).start()
+
+
 HORDE_KEY = os.getenv("HORDE_KEY", "")
 
 BASE_URL = "https://aihorde.net/api/v2"
