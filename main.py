@@ -89,12 +89,18 @@ def deepinfra_chat(channel_id: int, user_name: str, user_msg: str,
     inject_start = "[INST] <<SYS>>\n" + SYSTEM_PROMPT + "\n<</SYS>>\n\n"
     inject_end   = "[/INST]"
 
-    prompt_msgs = [{"role": "user", "content": f"{user_name}: {user_msg}"}]
-    prompt_msgs[0:0] = history   # lägg historik först
+    messages = history + [
+        {"role": "user", "content": f"{user_name}: {user_msg}"},
+        {"role": "system", "content": (
+            SYSTEM_PROMPT +
+            "\n\nDu MÅSTE svara på svenska. "
+            "Svara på högst 3 meningar. Ingen engelska."
+        )}
+    ]
 
     payload = {
         "model": MODEL,
-        "messages": prompt_msgs,
+        "messages": messages,
         "max_tokens": 120,
         "temperature": 1.0,
         "top_p": 0.9,
