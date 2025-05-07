@@ -31,7 +31,7 @@ def horde_infer(prompt: str) -> str:
         "prompt": prompt,
         "max_tokens": 120,
         # Kommentera bort "models" om du vill låta Horde välja ledig modell
-        "models": ["Pygmalion-2-7b"],
+        # "models": ["Pygmalion-2-7b"],
         "params": {
             "temperature": 0.8,
             "top_p": 0.95,
